@@ -66,19 +66,19 @@ Ensure you have the following installed:
 ### Installation
 #### 1. Clone the repository
 ```sh
- git clone https://github.com/your-repo/inpact.git
+ git clone [https://github.com/your-repo/inpact.git](https://github.com/AOSSIE-Org/InPact.git)
  cd inpact
 ```
 
 #### 2. Install Frontend Dependencies
 ```sh
-cd client
+cd frontend
 npm install
 ```
 
 #### 3. Install Backend Dependencies
 ```sh
-cd server
+cd backend
 pip install -r requirements.txt
 ```
 
