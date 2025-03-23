@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from db.db import engine
-from models import models
+from db.seed import seed_db
+from models import models, chat
 from routes.post import router as post_router
+from routes.chat import router as chat_router
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 import os
@@ -11,28 +13,35 @@ from contextlib import asynccontextmanager
 # Load environment variables
 load_dotenv()
 
+
 # Async function to create database tables with exception handling
 async def create_tables():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(models.Base.metadata.create_all)
+            await conn.run_sync(chat.Base.metadata.create_all)
         print("✅ Tables created successfully or already exist.")
     except SQLAlchemyError as e:
         print(f"❌ Error creating tables: {e}")
 
-#Lifespan context manager for startup and shutdown events
+
+# Lifespan context manager for startup and shutdown events
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("App is starting...")
     await create_tables()
+    await seed_db()
     yield
     print("App is shutting down...")
+
 
 # Initialize FastAPI
 app = FastAPI(lifespan=lifespan)
 
 # Include the routes
 app.include_router(post_router)
+app.include_router(chat_router)
+
 
 @app.get("/")
 async def home():
