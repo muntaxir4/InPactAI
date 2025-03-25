@@ -15,31 +15,28 @@ async def websocket_endpoint(
 ):
     await chat_service.connect(user_id, websocket, db)
     try:
-        print(f"User {user_id} connected")
         while True:
             data = await websocket.receive_json()
-            receiver_id = data.get("receiver_id")
-            message_text = data.get("message")
+            event_type = data.get("event_type", "")
+            if event_type == "GET_CHAT_LIST":
+                chat_list = await chat_service.get_chat_list(user_id, db)
+                await websocket.send_json(chat_list)
 
-            # Store message in DB
-            new_message = ChatMessage(
-                sender_id=user_id,
-                receiver_id=receiver_id,
-                message=message_text,
-                status=MessageStatus.SENT,
-            )
-            db.add(new_message)
-            await db.commit()
+            elif event_type == "SEND_MESSAGE":
+                # Send message to receiver if online
+                data["sender_id"] = user_id
+                await chat_service.send_message(data, db)
 
-            # Send message to receiver if online
-            await chat_service.send_message(
-                {
-                    "receiver_id": receiver_id,
-                    "sender_id": user_id,
-                    "message": message_text,
-                    "status": "delivered",
-                },
-            )
+            elif event_type == "USER_STATUS":
+                target_user_id = data.get("target_user_id")
+                is_online = chat_service.is_user_online(target_user_id)
+                await websocket.send_json(
+                    {
+                        "event_type": "USER_STATUS",
+                        "target_user_id": target_user_id,
+                        "is_online": is_online,
+                    }
+                )
     except WebSocketDisconnect:
         chat_service.disconnect(user_id, db)
 
