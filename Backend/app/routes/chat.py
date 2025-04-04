@@ -1,57 +1,111 @@
-from fastapi import APIRouter, WebSocket, Depends, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    WebSocket,
+    Depends,
+    WebSocketDisconnect,
+    Request,
+    HTTPException,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import select
-import json
 from db.db import get_db
-from models.chat import ChatMessage, MessageStatus
 from services.chat_services import chat_service
+from redis.asyncio import Redis
+from services.redis_client import get_redis
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(
-    websocket: WebSocket, user_id: str, db: AsyncSession = Depends(get_db)
+    websocket: WebSocket,
+    user_id: str,
+    redis: Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
 ):
     await chat_service.connect(user_id, websocket, db)
     try:
         while True:
             data = await websocket.receive_json()
             event_type = data.get("event_type", "")
-            if event_type == "GET_CHAT_LIST":
-                chat_list = await chat_service.get_chat_list(user_id, db)
-                await websocket.send_json(chat_list)
-
-            elif event_type == "SEND_MESSAGE":
-                # Send message to receiver if online
-                data["sender_id"] = user_id
-                await chat_service.send_message(data, db)
-
-            elif event_type == "USER_STATUS":
-                target_user_id = data.get("target_user_id")
-                is_online = chat_service.is_user_online(target_user_id)
-                await websocket.send_json(
-                    {
-                        "event_type": "USER_STATUS",
-                        "target_user_id": target_user_id,
-                        "is_online": is_online,
-                    }
+            if event_type == "SEND_MESSAGE":
+                receiver_id = data.get("receiver_id")
+                sender_id = user_id
+                message_text = data.get("message")
+                await chat_service.send_message(
+                    sender_id, receiver_id, message_text, db
                 )
+
     except WebSocketDisconnect:
-        chat_service.disconnect(user_id, db)
+        await chat_service.disconnect(user_id, redis, db)
 
 
-@router.get("/{user_id}/{receiver_id}")
+@router.get("/user_name/{user_id}")
+async def get_user_name(user_id: str, db: AsyncSession = Depends(get_db)):
+    return await chat_service.get_user_name(user_id, db)
+
+
+@router.get("/chat_list/{user_id}")
+async def get_user_chat_list(
+    user_id: str,
+    last_message_time: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    return await chat_service.get_user_chat_list(user_id, last_message_time, db)
+
+
+@router.get("/user_status/{target_user_id}")
+async def get_user_status(
+    target_user_id: str,
+    redis: Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
+):
+    return await chat_service.get_user_status(target_user_id, redis, db)
+
+
+@router.get("/messages/{user_id}/{chat_list_id}")
 async def get_chat_history(
-    user_id: str, receiver_id: str, db: AsyncSession = Depends(get_db)
+    user_id: str,
+    chat_list_id: str,
+    last_fetched: int = 0,
+    db: AsyncSession = Depends(get_db),
 ):
-    return await chat_service.get_chat_history(user_id, receiver_id, db)
+    return await chat_service.get_chat_history(user_id, chat_list_id, last_fetched, db)
 
 
-@router.put("/read/{user_id}/{receiver_id}")
-async def mark_as_read(
-    user_id: str, receiver_id: str, db: AsyncSession = Depends(get_db)
+@router.put("/read/{user_id}/{chat_list_id}/{message_id}")
+async def mark_message_as_read(
+    user_id: str,
+    chat_list_id: str,
+    message_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
-    await chat_service.mark_as_read(user_id, receiver_id, db)
+    if not message_id:
+        raise HTTPException(status_code=400, detail="message_id is required")
 
-    return {"message": "Messages marked as read"}
+    return await chat_service.mark_message_as_read(
+        user_id, chat_list_id, message_id, db
+    )
+
+
+@router.put("/read/{user_id}/{chat_list_id}")
+async def mark_chat_as_read(
+    user_id: str,
+    chat_list_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    if not chat_list_id:
+        raise HTTPException(status_code=400, detail="chat_list_id is required")
+
+    return await chat_service.mark_chat_as_read(user_id, chat_list_id, db)
+
+
+@router.post("/new_chat/{user_id}/{username}")
+async def create_new_chat_message(
+    user_id: str,
+    username: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    body = await request.json()
+    message = body.get("message")
+    return await chat_service.create_new_chat_message(user_id, username, message, db)

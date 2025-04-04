@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from db.db import engine
 from db.seed import seed_db
 from models import models, chat
@@ -37,6 +38,15 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI
 app = FastAPI(lifespan=lifespan)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Include the routes
 app.include_router(post_router)
