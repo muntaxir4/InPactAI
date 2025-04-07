@@ -13,6 +13,7 @@ import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Dashboard from "./pages/Brand/Dashboard";
 import BasicDetails from "./pages/BasicDetails";
+import Chat from "./components/chat/chat";
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/brand/dashboard" element={<Dashboard />} />
           <Route path="/basicDetails/:user" element={<BasicDetails />} />
+          <Route path="/creator/messages" element={<MessagesPage />} />
 
           {/* Protected Routes*/}
           <Route
