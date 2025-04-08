@@ -6,7 +6,11 @@ import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { useChat } from "@/lib/useChat";
 
-export default function MessageInput() {
+export default function MessageInput({
+  containerRef,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
   const [message, setMessage] = useState("");
   const receiverId = useSelector(
     (state: RootState) =>
@@ -17,6 +21,12 @@ export default function MessageInput() {
     if (message.trim() === "") return;
     sendMessage(receiverId, message);
     setMessage("");
+    // Scroll to the bottom of the container
+    setTimeout(() => {
+      if (containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      }
+    }, 1000);
   };
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Enter") {

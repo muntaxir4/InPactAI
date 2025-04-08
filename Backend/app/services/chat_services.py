@@ -7,6 +7,7 @@ from models.chat import ChatList, ChatMessage, MessageStatus
 from typing import Dict
 from redis.asyncio import Redis
 import logging
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,7 +17,12 @@ class ChatService:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
 
-    async def connect(self, user_id: str, websocket: WebSocket, db: AsyncSession):
+    async def connect(
+        self,
+        user_id: str,
+        websocket: WebSocket,
+        db: AsyncSession,
+    ):
         """Accept WebSocket connection and update user status to online."""
         await websocket.accept()
         # Mark user as online
@@ -54,7 +60,12 @@ class ChatService:
             )
 
     async def send_message(
-        self, sender_id: str, receiver_id: str, message_text: str, db: AsyncSession
+        self,
+        sender_id: str,
+        receiver_id: str,
+        message_text: str,
+        db: AsyncSession,
+        redis: Redis,
     ):
         """Send a message to the receiver if they are online."""
 
@@ -99,53 +110,64 @@ class ChatService:
         chat_list.last_message_time = datetime.now(timezone.utc)
         await db.commit()
 
+        receiver_channel = f"to_user:{receiver_id}"
+        sender_channel = f"to_user:{sender_id}"
+
         # Send message to receiver if online
         if receiver_id in self.active_connections:
             new_message.status = MessageStatus.DELIVERED
             await db.commit()
 
             if sender_id in self.active_connections:
-                sender = self.active_connections[sender_id]
-                await sender.send_json(
+                await redis.publish(
+                    sender_channel,
+                    json.dumps(
+                        {
+                            "eventType": "NEW_MESSAGE_DELIVERED",
+                            "chatListId": chat_list.id,
+                            "id": new_message.id,
+                            "message": message_text,
+                            "createdAt": new_message.created_at.isoformat(),
+                            "isSent": True,
+                            "status": "delivered",
+                            "senderId": sender_id,
+                        }
+                    ),
+                )
+
+            # Send message to receiver
+            await redis.publish(
+                receiver_channel,
+                json.dumps(
                     {
-                        "eventType": "NEW_MESSAGE_DELIVERED",
+                        "eventType": "NEW_MESSAGE_RECEIVED",
                         "chatListId": chat_list.id,
                         "id": new_message.id,
                         "message": message_text,
                         "createdAt": new_message.created_at.isoformat(),
-                        "isSent": True,
-                        "status": "delivered",
-                        "senderId": receiver_id,
+                        "isSent": False,
+                        "senderId": sender_id,
                     }
-                )
-
-            receiver = self.active_connections[receiver_id]
-            await receiver.send_json(
-                {
-                    "eventType": "NEW_MESSAGE_RECEIVED",
-                    "chatListId": chat_list.id,
-                    "id": new_message.id,
-                    "message": message_text,
-                    "createdAt": new_message.created_at.isoformat(),
-                    "isSent": False,
-                    "senderId": sender_id,
-                }
+                ),
             )
 
         else:
             if sender_id in self.active_connections:
-                sender = self.active_connections[sender_id]
-                await sender.send_json(
-                    {
-                        "eventType": "NEW_MESSAGE_DELIVERED",
-                        "chatListId": chat_list.id,
-                        "id": new_message.id,
-                        "message": message_text,
-                        "createdAt": new_message.created_at.isoformat(),
-                        "isSent": True,
-                        "status": "delivered",
-                        "senderId": receiver_id,
-                    }
+                # Send delivered message to sender
+                await redis.publish(
+                    sender_channel,
+                    json.dumps(
+                        {
+                            "eventType": "NEW_MESSAGE_SENT",
+                            "chatListId": chat_list.id,
+                            "id": new_message.id,
+                            "message": message_text,
+                            "createdAt": new_message.created_at.isoformat(),
+                            "isSent": True,
+                            "status": "sent",
+                            "senderId": receiver_id,
+                        }
+                    ),
                 )
 
         # used in create_new_chat_message
@@ -200,7 +222,12 @@ class ChatService:
         return formatted_messages
 
     async def mark_message_as_read(
-        self, user_id: str, chat_list_id: str, message_id: str, db: AsyncSession
+        self,
+        user_id: str,
+        chat_list_id: str,
+        message_id: str,
+        db: AsyncSession,
+        redis: Redis,
     ):
         """Mark a specific message as read and notify sender."""
         # Get the specific message
@@ -222,19 +249,22 @@ class ChatService:
 
         # Notify sender if they're online
         if message.sender_id in self.active_connections:
-            sender = self.active_connections[message.sender_id]
-            await sender.send_json(
-                {
-                    "eventType": "MESSAGE_READ",
-                    "chatListId": chat_list_id,
-                    "messageId": message_id,
-                }
+            # Send message read notification to sender
+            await redis.publish(
+                f"to_user:{message.sender_id}",
+                json.dumps(
+                    {
+                        "eventType": "MESSAGE_READ",
+                        "chatListId": chat_list_id,
+                        "messageId": message_id,
+                    }
+                ),
             )
 
         return True
 
     async def mark_chat_as_read(
-        self, user_id: str, chat_list_id: str, db: AsyncSession
+        self, user_id: str, chat_list_id: str, db: AsyncSession, redis: Redis
     ):
         """Mark messages as read and notify sender."""
         result = await db.execute(
@@ -265,15 +295,16 @@ class ChatService:
             else None
         )
 
-        logger.info(f"Marking messages as read for user {user_id} {receiver_id}")
         # Notify receiver
         if receiver_id and (receiver_id in self.active_connections):
-            receiver = self.active_connections[receiver_id]
-            await receiver.send_json(
-                {
-                    "eventType": "CHAT_MESSAGES_READ",
-                    "chatListId": chat_list_id,
-                }
+            await redis.publish(
+                f"to_user:{receiver_id}",
+                json.dumps(
+                    {
+                        "eventType": "CHAT_MESSAGES_READ",
+                        "chatListId": chat_list_id,
+                    }
+                ),
             )
 
         return {"message": "Messages marked as read"}
@@ -358,7 +389,12 @@ class ChatService:
         }
 
     async def create_new_chat_message(
-        self, user_id: str, username: str, message_text: str, db: AsyncSession
+        self,
+        user_id: str,
+        username: str,
+        message_text: str,
+        db: AsyncSession,
+        redis: Redis,
     ):
         """Create a new chat message."""
         if not message_text:
@@ -386,7 +422,7 @@ class ChatService:
                 "isChatListExists": True,
             }
 
-        return await self.send_message(user_id, receiver.id, message_text, db)
+        return await self.send_message(user_id, receiver.id, message_text, db, redis)
 
 
 chat_service = ChatService()

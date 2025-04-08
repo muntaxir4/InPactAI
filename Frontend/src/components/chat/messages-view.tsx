@@ -52,7 +52,7 @@ export default function MessagesView() {
               messagesContainerRef.current.scrollTop =
                 messagesContainerRef.current.scrollHeight;
             }
-          }, 100);
+          }, 1000);
         }
       })
       .finally(() => {
@@ -155,7 +155,7 @@ export default function MessagesView() {
         <MessagesList messages={messages} />
       </div>
 
-      <MessageInput />
+      <MessageInput containerRef={messagesContainerRef} />
     </div>
   );
 }
