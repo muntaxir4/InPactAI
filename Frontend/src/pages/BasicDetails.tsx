@@ -392,6 +392,16 @@ export default function BasicDetails() {
     },
   };
 
+  const resetForm = () => {
+    setStep(0);
+    setAnimationDirection(0);
+
+    document.querySelectorAll("input").forEach((input) => (input.value = ""));
+    document
+      .querySelectorAll("select")
+      .forEach((select) => (select.value = ""));
+  };
+
   return (
     <>
       <div className="min-h-screen flex flex-col bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800">
@@ -550,7 +560,10 @@ export default function BasicDetails() {
                 <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
                   <p>
                     Need to start over?{" "}
-                    <button className="text-purple-600 hover:text-purple-700 dark:text-purple-400 transition-colors">
+                    <button
+                      onClick={resetForm}
+                      className="text-purple-600 hover:text-purple-700 dark:text-purple-400 transition-colors"
+                    >
                       Reset form
                     </button>
                   </p>
