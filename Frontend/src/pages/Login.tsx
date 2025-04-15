@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Rocket } from "lucide-react";
+import { supabase } from "../utils/supabase";
 import { useAuth } from "../context/AuthContext";
 
 export default function LoginPage() {
@@ -17,19 +18,42 @@ export default function LoginPage() {
     setIsLoading(true);
     setError("");
 
-    // Simulate authentication
     try {
-      // In a real app, you would call your auth API here
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-      // Redirect to dashboard on success
+      if (error) {
+        setError(error.message);
+        setIsLoading(false);
+        return;
+      }
 
-      login();
+      Navigate("/dashboard");
+      setIsLoading(false);
     } catch (err) {
       setError("Invalid email or password. Please try again.");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleGoogleLogin = async () => {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+    });
+
+    if (error) {
+      console.log("Google login error", error);
+      return;
+    }
+
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        login();
+      }
+    });
   };
 
   return (
@@ -184,6 +208,7 @@ export default function LoginPage() {
                 <div className="mt-6 grid grid-cols-2 gap-3">
                   <button
                     type="button"
+                    onClick={() => handleGoogleLogin()}
                     className="w-full inline-flex justify-center py-3 px-4 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm bg-white dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors duration-200"
                   >
                     <svg
