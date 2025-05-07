@@ -15,7 +15,6 @@ import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Dashboard from "./pages/Brand/Dashboard";
 import BasicDetails from "./pages/BasicDetails";
-import Chat from "./components/chat/chat";
 
 function App() {
   return (
